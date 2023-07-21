@@ -18,4 +18,4 @@ fi
 cd /code
 
 # Start your app
-uvicorn main:app --reload --host 0.0.0.0 --port 5050
+uvicorn main:app --reload --host 0.0.0.0 --port 8080
