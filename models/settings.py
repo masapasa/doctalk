@@ -12,7 +12,7 @@ class BrainRateLimiting(BaseSettings):
 
 class BrainSettings(BaseSettings):
     openai_api_key: str
-    anthropic_api_key: str
+    anthropic_api_key: str = "null"
     supabase_url: str
     supabase_service_key: str
     pg_database_url: str = "not implemented"
