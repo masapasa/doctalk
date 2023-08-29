@@ -1,5 +1,5 @@
 /* Instructions:
-1. in .backend/core/supabase folder, create .env file with BEEHIIV_PUBLICATION_ID and BEEHIIV_API_KEY variables
+1. in .backend/supabase folder, create .env file with BEEHIIV_PUBLICATION_ID and BEEHIIV_API_KEY variables
 2. cd into .backend
 --- for the rest of these steps you will need your supabase project id which can be found in your console url: https://supabase.com/dashboard/project/<projectId> ---
 3. run `supabase secrets set --env-file ./supabase/.env` to set the environment variables
@@ -39,9 +39,9 @@ serve(
       const requestBody = {
         email: payload.record.email,
         send_welcome_email: false,
-        utm_source: "quivr",
+        utm_source: "Nubri",
         utm_medium: "organic",
-        referring_site: "https://quivr.app",
+        referring_site: "https://nubri.app",
       };
 
       const response = await fetch(url, {

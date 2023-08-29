@@ -1,10 +1,9 @@
 import resend
 from logger import get_logger
-from models.brains import Brain
-from models.brains_subscription_invitations import BrainSubscription
-from models.settings import BrainSettings
+from models import BrainSubscription, BrainSettings
 
-from repository.brain_subscription.get_brain_url import get_brain_url
+from repository.brain import get_brain_details
+from repository.brain_subscription import get_brain_url
 
 logger = get_logger(__name__)
 
@@ -19,9 +18,10 @@ def resend_invitation_email(
 
     brain_url = get_brain_url(origin, brain_subscription.brain_id)
 
-    invitation_brain_client = Brain(id=brain_subscription.brain_id)
-    invitation_brain = invitation_brain_client.get_brain_details()[0]
-    brain_name = invitation_brain["name"]
+    invitation_brain = get_brain_details(brain_subscription.brain_id)
+    if invitation_brain is None:
+        raise Exception("Brain not found")
+    brain_name = invitation_brain.name
 
     html_body = f"""
     <p>Brain {brain_name} has been shared with you by {inviter_email}.</p>

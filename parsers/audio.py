@@ -4,13 +4,12 @@ import time
 import openai
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from models.files import File
-from models.settings import CommonsDep
+
+from models import File, get_documents_vector_store
 from utils.file import compute_sha1_from_content
 
 
 async def process_audio(
-    commons: CommonsDep,  # pyright: ignore reportPrivateUsage=none
     file: File,
     enable_summarization: bool,
     user,
@@ -20,6 +19,7 @@ async def process_audio(
     file_sha = ""
     dateshort = time.strftime("%Y%m%d-%H%M%S")
     file_meta_name = f"audiotranscript_{dateshort}.txt"
+    documents_vector_store = get_documents_vector_store()
 
     # use this for whisper
     os.environ.get("OPENAI_API_KEY")
@@ -77,9 +77,7 @@ async def process_audio(
             for text in texts
         ]
 
-        commons.documents_vector_store.add_documents(  # pyright: ignore reportPrivateUsage=none
-            docs_with_metadata
-        )
+        documents_vector_store.add_documents(docs_with_metadata)
 
     finally:
         if temp_filename and os.path.exists(temp_filename):

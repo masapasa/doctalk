@@ -6,15 +6,17 @@ from uuid import UUID
 from auth import AuthBearer, get_current_user
 from crawl.crawler import CrawlWebsite
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
-from models.brains import Brain
-from models.files import File
-from models.settings import common_dependencies
-from models.users import User
+from models import Brain, File, UserIdentity
 from parsers.github import process_github
 from utils.file import convert_bytes
 from utils.processors import filter_file
 
 crawl_router = APIRouter()
+
+
+@crawl_router.get("/crawl/healthz", tags=["Health"])
+async def healthz():
+    return {"status": "ok"}
 
 
 @crawl_router.post("/crawl", dependencies=[Depends(AuthBearer())], tags=["Crawl"])
@@ -23,7 +25,7 @@ async def crawl_endpoint(
     crawl_website: CrawlWebsite,
     brain_id: UUID = Query(..., description="The ID of the brain"),
     enable_summarization: bool = False,
-    current_user: User = Depends(get_current_user),
+    current_user: UserIdentity = Depends(get_current_user),
 ):
     """
     Crawl a website and process the crawled data.
@@ -32,19 +34,16 @@ async def crawl_endpoint(
     # [TODO] check if the user is the owner/editor of the brain
     brain = Brain(id=brain_id)
 
-    commons = common_dependencies()
-
+    # [TODO] rate limiting of user for crawl
     if request.headers.get("Openai-Api-Key"):
-        brain.max_brain_size = os.getenv(
-            "MAX_BRAIN_SIZE_WITH_KEY", 209715200
-        )  # pyright: ignore reportPrivateUsage=none
+        brain.max_brain_size = int(os.getenv("MAX_BRAIN_SIZE_WITH_KEY", 209715200))
 
     file_size = 1000000
     remaining_free_space = brain.remaining_brain_size
 
     if remaining_free_space - file_size < 0:
         message = {
-            "message": f"❌ User's brain will exceed maximum capacity with this upload. Maximum file allowed is : {convert_bytes(remaining_free_space)}",
+            "message": f"❌ UserIdentity's brain will exceed maximum capacity with this upload. Maximum file allowed is : {convert_bytes(remaining_free_space)}",
             "type": "error",
         }
     else:
@@ -66,19 +65,17 @@ async def crawl_endpoint(
             file = File(file=uploadFile)
             #  check remaining free space here !!
             message = await filter_file(
-                commons,
-                file,
-                enable_summarization,
-                brain.id,
+                file=file,
+                enable_summarization=enable_summarization,
+                brain_id=brain.id,
                 openai_api_key=request.headers.get("Openai-Api-Key", None),
             )
             return message
         else:
             #  check remaining free space here !!
             message = await process_github(
-                commons,
-                crawl_website.url,
-                "false",
-                brain_id,
+                repo=crawl_website.url,
+                enable_summarization="false",
+                brain_id=brain_id,
                 user_openai_api_key=request.headers.get("Openai-Api-Key", None),
             )

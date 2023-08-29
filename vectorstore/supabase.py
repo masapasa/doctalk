@@ -1,7 +1,7 @@
 from typing import Any, List
 
 from langchain.docstore.document import Document
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.embeddings.base import Embeddings
 from langchain.vectorstores import SupabaseVectorStore
 from supabase.client import Client
 
@@ -14,7 +14,7 @@ class CustomSupabaseVectorStore(SupabaseVectorStore):
     def __init__(
         self,
         client: Client,
-        embedding: OpenAIEmbeddings,
+        embedding: Embeddings,
         table_name: str,
         brain_id: str = "none",
     ):
@@ -24,8 +24,8 @@ class CustomSupabaseVectorStore(SupabaseVectorStore):
     def similarity_search(
         self,
         query: str,
-        table: str = "match_vectors",
         k: int = 6,
+        table: str = "match_vectors",
         threshold: float = 0.5,
         **kwargs: Any
     ) -> List[Document]:

@@ -3,20 +3,21 @@ from uuid import UUID
 
 from auth.auth_bearer import AuthBearer, get_current_user
 from fastapi import APIRouter, Depends, HTTPException
-from models.brains import Brain
-from models.brains_subscription_invitations import BrainSubscription
-from models.users import User
+from models import Brain, BrainSubscription, PromptStatusEnum, UserIdentity
 from pydantic import BaseModel
-from repository.brain.update_user_rights import update_brain_user_rights
-from repository.brain_subscription.resend_invitation_email import (
+from repository.brain import (
+    create_brain_user,
+    get_brain_by_id,
+    get_brain_details,
+    get_brain_for_user,
+    update_brain_user_rights,
+)
+from repository.brain_subscription import (
+    SubscriptionInvitationService,
     resend_invitation_email,
 )
-from repository.brain_subscription.subscription_invitation_service import (
-    SubscriptionInvitationService,
-)
-from repository.user.get_user_email_by_user_id import get_user_email_by_user_id
-from repository.user.get_user_id_by_user_email import get_user_id_by_user_email
-
+from repository.prompt import delete_prompt_by_id, get_prompt_by_id
+from repository.user import get_user_email_by_user_id, get_user_id_by_user_email
 from routes.authorizations.brain_authorization import (
     RoleEnum,
     has_brain_authorization,
@@ -43,7 +44,7 @@ def invite_users_to_brain(
     brain_id: UUID,
     users: List[dict],
     origin: str = Depends(get_origin_header),
-    current_user: User = Depends(get_current_user),
+    current_user: UserIdentity = Depends(get_current_user),
 ):
     """
     Invite multiple users to a brain by their emails. This function creates
@@ -113,7 +114,7 @@ def get_brain_users(
     "/brains/{brain_id}/subscription",
 )
 async def remove_user_subscription(
-    brain_id: UUID, current_user: User = Depends(get_current_user)
+    brain_id: UUID, current_user: UserIdentity = Depends(get_current_user)
 ):
     """
     Remove a user's subscription to a brain
@@ -121,14 +122,14 @@ async def remove_user_subscription(
     brain = Brain(
         id=brain_id,
     )
-    user_brain = brain.get_brain_for_user(current_user.id)
+    user_brain = get_brain_for_user(current_user.id, brain_id)
     if user_brain is None:
         raise HTTPException(
             status_code=403,
             detail="You don't have permission for this brain",
         )
 
-    if user_brain.get("rights") != "Owner":
+    if user_brain.rights != "Owner":
         brain.delete_user_from_brain(current_user.id)
     else:
         brain_users = brain.get_brain_users()
@@ -140,7 +141,17 @@ async def remove_user_subscription(
         ]
 
         if len(brain_other_owners) == 0:
-            brain.delete_brain(current_user.id)
+            # Delete its prompt if it's private
+            brain_to_delete = get_brain_by_id(brain_id)
+            if brain_to_delete:
+                brain.delete_brain(current_user.id)
+                if brain_to_delete.prompt_id:
+                    brain_to_delete_prompt = get_prompt_by_id(brain_to_delete.prompt_id)
+                    if brain_to_delete_prompt is not None and (
+                        brain_to_delete_prompt.status == PromptStatusEnum.private
+                    ):
+                        delete_prompt_by_id(brain_to_delete.prompt_id)
+
         else:
             brain.delete_user_from_brain(current_user.id)
 
@@ -152,13 +163,15 @@ async def remove_user_subscription(
     dependencies=[Depends(AuthBearer())],
     tags=["BrainSubscription"],
 )
-def get_user_invitation(brain_id: UUID, current_user: User = Depends(get_current_user)):
+def get_user_invitation(
+    brain_id: UUID, current_user: UserIdentity = Depends(get_current_user)
+):
     """
     Get an invitation to a brain for a user. This function checks if the user
     has been invited to the brain and returns the invitation status.
     """
     if not current_user.email:
-        raise HTTPException(status_code=400, detail="User email is not defined")
+        raise HTTPException(status_code=400, detail="UserIdentity email is not defined")
 
     subscription = BrainSubscription(brain_id=brain_id, email=current_user.email)
 
@@ -170,16 +183,15 @@ def get_user_invitation(brain_id: UUID, current_user: User = Depends(get_current
             detail="You have not been invited to this brain",
         )
 
-    brain = Brain(id=brain_id)
-    brain_details = brain.get_brain_details()
+    brain_details = get_brain_details(brain_id)
 
-    if len(brain_details) == 0:
+    if brain_details is None:
         raise HTTPException(
             status_code=404,
             detail="Brain not found while trying to get invitation",
         )
 
-    return {"name": brain_details[0]["name"], "rights": invitation["rights"]}
+    return {"name": brain_details.name, "rights": invitation["rights"]}
 
 
 @subscription_router.post(
@@ -187,7 +199,7 @@ def get_user_invitation(brain_id: UUID, current_user: User = Depends(get_current
     tags=["Brain"],
 )
 async def accept_invitation(
-    brain_id: UUID, current_user: User = Depends(get_current_user)
+    brain_id: UUID, current_user: UserIdentity = Depends(get_current_user)
 ):
     """
     Accept an invitation to a brain for a user. This function removes the
@@ -195,7 +207,7 @@ async def accept_invitation(
     brain users.
     """
     if not current_user.email:
-        raise HTTPException(status_code=400, detail="User email is not defined")
+        raise HTTPException(status_code=400, detail="UserIdentity email is not defined")
 
     subscription = BrainSubscription(brain_id=brain_id, email=current_user.email)
 
@@ -208,9 +220,11 @@ async def accept_invitation(
         raise HTTPException(status_code=404, detail="Invitation not found")
 
     try:
-        brain = Brain(id=brain_id)
-        brain.create_brain_user(
-            user_id=current_user.id, rights=invitation["rights"], default_brain=False
+        create_brain_user(
+            user_id=current_user.id,
+            brain_id=brain_id,
+            rights=invitation["rights"],
+            is_default_brain=False,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error adding user to brain: {e}")
@@ -228,14 +242,14 @@ async def accept_invitation(
     tags=["Brain"],
 )
 async def decline_invitation(
-    brain_id: UUID, current_user: User = Depends(get_current_user)
+    brain_id: UUID, current_user: UserIdentity = Depends(get_current_user)
 ):
     """
     Decline an invitation to a brain for a user. This function removes the
     invitation from the subscription invitations.
     """
     if not current_user.email:
-        raise HTTPException(status_code=400, detail="User email is not defined")
+        raise HTTPException(status_code=400, detail="UserIdentity email is not defined")
 
     subscription = BrainSubscription(brain_id=brain_id, email=current_user.email)
 
@@ -270,7 +284,7 @@ class BrainSubscriptionUpdatableProperties(BaseModel):
 def update_brain_subscription(
     brain_id: UUID,
     subscription: BrainSubscriptionUpdatableProperties,
-    current_user: User = Depends(get_current_user),
+    current_user: UserIdentity = Depends(get_current_user),
 ):
     user_email = subscription.email
     if user_email == current_user.email:
@@ -299,8 +313,8 @@ def update_brain_subscription(
             )
 
     # check if user is not an editor trying to update an owner right which is not allowed
-    current_invitation = brain.get_brain_for_user(user_id)
-    if current_invitation is not None and current_invitation.get("rights") == "Owner":
+    current_invitation = get_brain_for_user(user_id, brain_id)
+    if current_invitation is not None and current_invitation.rights == "Owner":
         try:
             validate_brain_authorization(
                 brain_id,

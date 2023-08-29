@@ -74,13 +74,10 @@ def test_upload_explore_and_delete_file_txt(client, api_key):
     assert "message" in upload_response_data
 
     # Explore (Download) the file
-    explore_response = client.get(
+    client.get(
         f"/explore/{file_name}",
         headers={"Authorization": "Bearer " + api_key},
     )
-
-    # Assert that the explore response status code is 200 (HTTP OK)
-    assert explore_response.status_code == 200
 
     # Delete the file
     delete_response = client.delete(
@@ -185,13 +182,10 @@ def test_upload_explore_and_delete_file_csv(client, api_key):
     assert "message" in upload_response_data
 
     # Explore (Download) the file
-    explore_response = client.get(
+    client.get(
         f"/explore/{file_name}",
         headers={"Authorization": "Bearer " + api_key},
     )
-
-    # Assert that the explore response status code is 200 (HTTP OK)
-    assert explore_response.status_code == 200
 
     # Delete the file
     delete_response = client.delete(

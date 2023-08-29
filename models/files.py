@@ -6,10 +6,12 @@ from uuid import UUID
 from fastapi import UploadFile
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from logger import get_logger
-from models.brains import Brain
-from models.settings import CommonsDep, common_dependencies
 from pydantic import BaseModel
 from utils.file import compute_sha1_from_file
+
+from models.brains import Brain
+from models.databases.supabase.supabase import SupabaseDB
+from models.settings import get_supabase_db
 
 logger = get_logger(__name__)
 
@@ -26,7 +28,10 @@ class File(BaseModel):
     chunk_size: int = 500
     chunk_overlap: int = 0
     documents: Optional[Any] = None
-    _commons: Optional[CommonsDep] = None
+
+    @property
+    def supabase_db(self) -> SupabaseDB:
+        return get_supabase_db()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -94,17 +99,9 @@ class File(BaseModel):
         Set the vectors_ids property with the ids of the vectors
         that are associated with the file in the vectors table
         """
-
-        commons = common_dependencies()
-        response = (
-            commons["supabase"]
-            .table("vectors")
-            .select("id")
-            .filter("metadata->>file_sha1", "eq", self.file_sha1)
-            .execute()
-        )
-        self.vectors_ids = response.data
-        return
+        self.vectors_ids = self.supabase_db.get_vectors_by_file_sha1(
+            self.file_sha1
+        ).data
 
     def file_already_exists(self):
         """
@@ -132,17 +129,10 @@ class File(BaseModel):
         Args:
             brain_id (str): Brain id
         """
-        commons = common_dependencies()
-        self.set_file_vectors_ids()
-        # Check if file exists in that brain
-        response = (
-            commons["supabase"]
-            .table("brains_vectors")
-            .select("brain_id, vector_id")
-            .filter("brain_id", "eq", brain_id)
-            .filter("file_sha1", "eq", self.file_sha1)
-            .execute()
+        response = self.supabase_db.get_brain_vectors_by_brain_id_and_file_sha1(
+            brain_id, self.file_sha1  # type: ignore
         )
+
         print("response.data", response.data)
         if len(response.data) == 0:
             return False

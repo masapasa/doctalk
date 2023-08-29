@@ -1,12 +1,13 @@
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-import dotenv
+from weakref import ref
+from git import refresh
 from jose import jwt
 from jose.exceptions import JWTError
-dotenv.load_dotenv(verbose=True)
-from models.users import User
-dotenv.load_dotenv(verbose=True)
+from models import UserIdentity
+import dotenv
+dotenv.load_dotenv()
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 
@@ -25,7 +26,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> User:
+def decode_access_token(token: str) -> UserIdentity:
     try:
         payload = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_aud": False}
@@ -33,7 +34,7 @@ def decode_access_token(token: str) -> User:
     except JWTError:
         return None  # pyright: ignore reportPrivateUsage=none
 
-    return User(
+    return UserIdentity(
         email=payload.get("email"),
         id=payload.get("sub"),  # pyright: ignore reportPrivateUsage=none
     )
